@@ -1,0 +1,7 @@
+<!-- Add these keys inside ios/YourApp/Info.plist -->
+<key>NSMicrophoneUsageDescription</key>
+<string>We need microphone access to record your voice service report.</string>
+<key>NSCameraUsageDescription</key>
+<string>We need camera access to take photos of the RO unit for the service report.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>We need photo library access to attach existing photos of the RO unit.</string>
