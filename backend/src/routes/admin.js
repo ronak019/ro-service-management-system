@@ -193,11 +193,16 @@ router.get('/reports', async (req, res) => {
 router.get('/complaints', [query('status').optional().isIn(['open', 'in_progress', 'resolved'])], validate, async (req, res) => {
   const { status } = req.query;
   const result = await db.query(
-    `SELECT co.*, cu.name AS customer_name, cu.phone AS customer_phone
+    `SELECT co.*, cu.name AS customer_name, cu.phone AS customer_phone,
+            COALESCE(
+              json_agg(ci.image_url) FILTER (WHERE ci.id IS NOT NULL), '[]'
+            ) AS image_urls
      FROM complaints co
      JOIN jobs j ON j.id = co.job_id
      JOIN customers c ON c.id = j.customer_id JOIN users cu ON cu.id = c.user_id
+     LEFT JOIN complaint_images ci ON ci.complaint_id = co.id
      WHERE ($1::text IS NULL OR co.status = $1)
+     GROUP BY co.id, cu.name, cu.phone
      ORDER BY co.created_at DESC LIMIT 200`,
     [status || null]
   );
