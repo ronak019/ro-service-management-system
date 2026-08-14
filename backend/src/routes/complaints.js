@@ -1,7 +1,7 @@
 // routes/complaints.js
 import express from 'express';
 import { body, param } from 'express-validator';
-import { upload } from '../middleware/upload.js';
+import { upload, getPublicUrl } from '../middleware/upload.js';
 import { complaintLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { db } from '../db/index.js';
@@ -49,7 +49,7 @@ router.post(
     const result = await db.query(
       `INSERT INTO complaints (job_id, customer_message, audio_url, status)
        VALUES ($1, $2, $3, 'open') RETURNING *`,
-      [jobId, message?.trim() || null, audioFile?.location || null]
+      [jobId, message?.trim() || null, audioFile ? getPublicUrl(audioFile) : null]
     );
 
     await audit({
