@@ -21,7 +21,11 @@ const router = express.Router();
 router.post(
   '/:token',
   complaintLimiter,
-  upload.fields([{ name: 'audio', maxCount: 1 }]),
+  upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'images', maxCount: 5 },
+    { name: 'video', maxCount: 1 },
+  ]),
   [
     param('token').isHexadecimal().isLength({ min: 32 }),
     body('message').optional({ values: 'falsy' }).trim().isLength({ max: 5000 }),
@@ -42,25 +46,56 @@ router.post(
     const jobId = tokenRow.rows[0].job_id;
 
     const audioFile = req.files?.audio?.[0];
-    if (!message?.trim() && !audioFile) {
-      return res.status(400).json({ error: 'Provide a message and/or an audio recording' });
+    const videoFile = req.files?.video?.[0];
+    const imageFiles = req.files?.images || [];
+
+    if (!message?.trim() && !audioFile && !videoFile && imageFiles.length === 0) {
+      return res.status(400).json({ error: 'Provide a message, photo, video, and/or audio recording' });
     }
 
-    const result = await db.query(
-      `INSERT INTO complaints (job_id, customer_message, audio_url, status)
-       VALUES ($1, $2, $3, 'open') RETURNING *`,
-      [jobId, message?.trim() || null, audioFile ? getPublicUrl(audioFile) : null]
-    );
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
 
-    await audit({
-      action: 'complaint.created',
-      entityType: 'complaint',
-      entityId: result.rows[0].id,
-      details: { jobId },
-      ip: req.ip,
-    });
+      const result = await client.query(
+        `INSERT INTO complaints (job_id, customer_message, audio_url, video_url, status)
+         VALUES ($1, $2, $3, $4, 'open') RETURNING *`,
+        [
+          jobId,
+          message?.trim() || null,
+          audioFile ? getPublicUrl(audioFile) : null,
+          videoFile ? getPublicUrl(videoFile) : null,
+        ]
+      );
+      const complaint = result.rows[0];
 
-    res.status(201).json({ complaint: result.rows[0] });
+      const imageRows = [];
+      for (const file of imageFiles) {
+        const r = await client.query(
+          'INSERT INTO complaint_images (complaint_id, image_url) VALUES ($1, $2) RETURNING *',
+          [complaint.id, getPublicUrl(file)]
+        );
+        imageRows.push(r.rows[0]);
+      }
+
+      await client.query('COMMIT');
+
+      await audit({
+        action: 'complaint.created',
+        entityType: 'complaint',
+        entityId: complaint.id,
+        details: { jobId, imageCount: imageRows.length, hasVideo: !!videoFile },
+        ip: req.ip,
+      });
+
+      res.status(201).json({ complaint, images: imageRows });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error(e);
+      res.status(500).json({ error: 'Failed to save complaint' });
+    } finally {
+      client.release();
+    }
   }
 );
 
