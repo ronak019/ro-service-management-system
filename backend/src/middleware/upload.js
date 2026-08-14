@@ -27,7 +27,8 @@ const ALLOWED_AUDIO_MIMES = [
   'audio/mpeg',
   'audio/wav',
 ];
-const ALLOWED_MIMES = new Set([...ALLOWED_IMAGE_MIMES, ...ALLOWED_AUDIO_MIMES]);
+const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/3gpp'];
+const ALLOWED_MIMES = new Set([...ALLOWED_IMAGE_MIMES, ...ALLOWED_AUDIO_MIMES, ...ALLOWED_VIDEO_MIMES]);
 
 // Extension is taken from the detected mimetype, never trusted from the
 // client filename, to avoid path traversal / double-extension tricks
@@ -43,7 +44,17 @@ const EXT_BY_MIME = {
   'audio/webm': 'webm',
   'audio/mpeg': 'mp3',
   'audio/wav': 'wav',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/3gpp': '3gp',
 };
+
+function folderFor(mimetype) {
+  if (ALLOWED_IMAGE_MIMES.includes(mimetype)) return 'images';
+  if (ALLOWED_VIDEO_MIMES.includes(mimetype)) return 'videos';
+  return 'audio';
+}
 
 function keyFor(folder, mimetype) {
   const ext = EXT_BY_MIME[mimetype] || 'bin';
@@ -57,12 +68,11 @@ export const upload = multer({
     bucket: process.env.AWS_BUCKET,
     contentType: multerS3.AUTO_CONTENT_TYPE,
     key: (req, file, cb) => {
-      const folder = ALLOWED_IMAGE_MIMES.includes(file.mimetype) ? 'images' : 'audio';
-      cb(null, keyFor(folder, file.mimetype));
+      cb(null, keyFor(folderFor(file.mimetype), file.mimetype));
     },
   }),
   limits: {
-    fileSize: 15 * 1024 * 1024, // 15MB — covers a few minutes of compressed audio + full-res photos
+    fileSize: 60 * 1024 * 1024, // 60MB — covers a short phone-recorded video clip
     files: 12,
   },
   fileFilter: (req, file, cb) => {
@@ -74,7 +84,7 @@ export const upload = multer({
   },
 });
 
-export { ALLOWED_IMAGE_MIMES, ALLOWED_AUDIO_MIMES };
+export { ALLOWED_IMAGE_MIMES, ALLOWED_AUDIO_MIMES, ALLOWED_VIDEO_MIMES };
 
 /**
  * Returns the browser-viewable URL for an uploaded file.
