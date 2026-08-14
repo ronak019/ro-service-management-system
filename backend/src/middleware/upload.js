@@ -75,3 +75,24 @@ export const upload = multer({
 });
 
 export { ALLOWED_IMAGE_MIMES, ALLOWED_AUDIO_MIMES };
+
+/**
+ * Returns the browser-viewable URL for an uploaded file.
+ *
+ * On real AWS S3, `file.location` (built by multer-s3) is already a public,
+ * directly-fetchable URL when the bucket allows public reads.
+ *
+ * Some S3-compatible providers (e.g. Supabase Storage) expose a *different*
+ * URL for public/anonymous reads than the S3 API endpoint itself — the S3
+ * endpoint requires a signed request, while public objects are served from
+ * a separate REST path. For those, set PUBLIC_ASSET_BASE_URL to that
+ * provider's public base (e.g. Supabase:
+ * `https://<project-ref>.supabase.co/storage/v1/object/public/<bucket>`)
+ * and this function will build the correct link from the object key.
+ */
+export function getPublicUrl(file) {
+  if (process.env.PUBLIC_ASSET_BASE_URL) {
+    return `${process.env.PUBLIC_ASSET_BASE_URL.replace(/\/$/, '')}/${file.key}`;
+  }
+  return file.location;
+}
