@@ -2,7 +2,7 @@
 import express from 'express';
 import { body, param } from 'express-validator';
 import { authenticate, requireRole } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
+import { upload, getPublicUrl } from '../middleware/upload.js';
 import { validate } from '../middleware/validate.js';
 import { publicReportLimiter } from '../middleware/rateLimit.js';
 import { db } from '../db/index.js';
@@ -55,7 +55,7 @@ router.post(
       const reportRes = await client.query(
         `INSERT INTO reports (job_id, text_report, audio_url, created_by)
          VALUES ($1, $2, $3, $4) RETURNING *`,
-        [jobId, textReport?.trim() || null, audioFile?.location || null, userId]
+        [jobId, textReport?.trim() || null, audioFile ? getPublicUrl(audioFile) : null, userId]
       );
       const report = reportRes.rows[0];
 
@@ -63,7 +63,7 @@ router.post(
       for (const file of imageFiles) {
         const r = await client.query(
           'INSERT INTO report_images (report_id, image_url) VALUES ($1, $2) RETURNING *',
-          [report.id, file.location]
+          [report.id, getPublicUrl(file)]
         );
         imageRows.push(r.rows[0]);
       }
