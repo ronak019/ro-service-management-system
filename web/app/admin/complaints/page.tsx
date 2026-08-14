@@ -46,7 +46,20 @@ export default function ComplaintsPage() {
                 ))}
               </select>
             </div>
-            {c.customer_message && <p className="text-sm text-gray-600 mt-1">{c.customer_message}</p>}
+           {c.customer_message && <p className="text-sm text-gray-600 mt-1">{c.customer_message}</p>}
+            {c.image_urls && c.image_urls.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {c.image_urls.map((url: string, idx: number) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={idx} src={url} alt="" className="w-20 h-20 object-cover rounded border" />
+                ))}
+              </div>
+            )}
+            {c.video_url && (
+              <video controls className="mt-2 w-full max-w-sm rounded">
+                <source src={c.video_url} />
+              </video>
+            )}
             {c.audio_url && (
               <audio controls className="mt-2 w-full">
                 <source src={c.audio_url} />
