@@ -1,0 +1,253 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import TechShell from '../../_components/TechShell';
+import { techApiFetch, isTechLoggedIn } from '../../../../lib/techApi';
+
+export default function TechJobDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+
+  const [job, setJob] = useState<any>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [error, setError] = useState('');
+  const [textReport, setTextReport] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  function load() {
+    techApiFetch(`/jobs/${id}`)
+      .then((d) => {
+        setJob(d.job);
+        setReports(d.reports || []);
+      })
+      .catch((e) => setError(e.message));
+  }
+  useEffect(() => {
+    if (isTechLoggedIn()) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function updateStatus(status: string) {
+    setStatusUpdating(true);
+    setError('');
+    try {
+      const data = await techApiFetch(`/jobs/${id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      setJob((prev: any) => ({ ...prev, status: data.job.status }));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStatusUpdating(false);
+    }
+  }
+
+  function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    setImages((prev) => [...prev, ...files]);
+    setImagePreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
+    e.target.value = ''; // allow picking the same file again / repeated captures
+  }
+  function removeImage(idx: number) {
+    setImages((prev) => prev.filter((_, i) => i !== idx));
+    setImagePreviews((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  async function toggleRecording() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      recorder.onstop = () => {
+        setAudioBlob(new Blob(chunksRef.current, { type: 'audio/webm' }));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecording(true);
+    } catch {
+      setError('Microphone permission denied / माइक्रोफ़ोन अनुमति नहीं मिली');
+    }
+  }
+
+  async function submitReport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!textReport.trim() && !audioBlob) {
+      setError('Add text or record audio for the report / रिपोर्ट के लिए टेक्स्ट या ऑडियो जोड़ें');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    setDone(false);
+    try {
+      const formData = new FormData();
+      formData.append('textReport', textReport);
+      if (audioBlob) formData.append('audio', audioBlob, 'report.webm');
+      images.forEach((img, i) => formData.append('images', img, img.name || `photo_${i}.jpg`));
+
+      await techApiFetch(`/reports/jobs/${id}`, { method: 'POST', body: formData });
+      setDone(true);
+      setTextReport('');
+      setImages([]);
+      setImagePreviews([]);
+      setAudioBlob(null);
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <TechShell>
+      <button onClick={() => router.push('/tech/jobs')} className="text-blue-700 text-sm mb-3">
+        ← Back to jobs
+      </button>
+
+      {error && <p className="text-red-600 mb-3">{error}</p>}
+      {!job && !error && <p className="text-gray-500">Loading...</p>}
+
+      {job && (
+        <>
+          <div className="bg-white rounded-lg shadow p-4 mb-4">
+            <div className="font-bold text-lg">{job.customer_name}</div>
+            <div className="text-gray-600 text-sm">{job.address}, {job.city}</div>
+            <div className="text-gray-400 text-sm mt-1">
+              {new Date(job.scheduled_at).toLocaleString('en-IN')}
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => updateStatus('in_progress')}
+                disabled={statusUpdating}
+                className={`flex-1 py-3 rounded font-medium border ${
+                  job.status === 'in_progress' ? 'bg-blue-600 text-white' : 'border-blue-600 text-blue-600'
+                }`}
+              >
+                Start Work / शुरू करें
+              </button>
+              <button
+                onClick={() => updateStatus('completed')}
+                disabled={statusUpdating}
+                className={`flex-1 py-3 rounded font-medium border ${
+                  job.status === 'completed' ? 'bg-green-600 text-white' : 'border-green-600 text-green-600'
+                }`}
+              >
+                Mark Complete / पूर्ण करें
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={submitReport} className="bg-white rounded-lg shadow p-4 space-y-4">
+            <h2 className="font-bold text-lg">Submit Report / रिपोर्ट जमा करें</h2>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Type Report / रिपोर्ट लिखें</label>
+              <textarea
+                className="w-full border rounded p-3 text-base"
+                rows={4}
+                value={textReport}
+                onChange={(e) => setTextReport(e.target.value)}
+                placeholder="यहाँ रिपोर्ट लिखें / Write report here"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Audio Report / ऑडियो रिपोर्ट</label>
+              <button
+                type="button"
+                onClick={toggleRecording}
+                className={`w-full py-4 rounded-full text-white text-lg font-bold ${
+                  recording ? 'bg-red-600' : 'bg-blue-600'
+                }`}
+              >
+                {recording ? '⏹ Stop' : '🎤 Record'}
+              </button>
+              {audioBlob && !recording && (
+                <p className="text-green-700 text-sm mt-1">✓ Audio ready / ऑडियो तैयार है</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Photos / फोटो</label>
+              <div className="flex gap-2">
+                <label className="flex-1 text-center bg-gray-100 rounded p-3 font-medium cursor-pointer">
+                  📷 Camera
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    className="hidden"
+                    onChange={handleImagePick}
+                  />
+                </label>
+                <label className="flex-1 text-center bg-gray-100 rounded p-3 font-medium cursor-pointer">
+                  🖼 Gallery
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={handleImagePick} />
+                </label>
+              </div>
+              {imagePreviews.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {imagePreviews.map((src, idx) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <div key={idx} className="relative">
+                      <img src={src} alt="" className="w-20 h-20 object-cover rounded border" />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(idx)}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 text-xs"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-green-600 text-white rounded p-4 text-base font-bold disabled:opacity-50"
+            >
+              {submitting ? 'Submitting... / जमा हो रहा है...' : 'Submit Report / रिपोर्ट जमा करें'}
+            </button>
+
+            {done && <p className="text-green-600 text-center">Report submitted! / रिपोर्ट जमा हो गई!</p>}
+          </form>
+
+          {reports.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">Previous reports</h3>
+              {reports.map((r: any) => (
+                <div key={r.id} className="bg-white rounded shadow p-3 mb-2 text-sm">
+                  {r.text_report && <p className="mb-1">{r.text_report}</p>}
+                  <p className="text-gray-400">{new Date(r.created_at).toLocaleString('en-IN')}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </TechShell>
+  );
+}
