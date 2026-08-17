@@ -25,7 +25,7 @@ export default function AdminLoginPage() {
       if (!res.ok) throw new Error(data.error || 'Login failed');
       if (data.user.role !== 'admin') throw new Error('This login is for admins only');
       setTokens(data.accessToken, data.refreshToken);
-      router.push('/admin/dashboard');
+      router.replace('/admin/dashboard');
     } catch (err: any) {
       setError(err.message);
     } finally {
