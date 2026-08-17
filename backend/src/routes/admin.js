@@ -2,6 +2,7 @@
 // All routes here require an authenticated admin.
 import express from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -50,6 +51,79 @@ router.put(
     });
 
     res.json({ user: result.rows[0] });
+  }
+);
+
+// Edit a user's own account fields (not role — role changes aren't supported to
+// avoid orphaning their technician/customer profile row).
+router.put(
+  '/users/:id',
+  [
+    param('id').isInt(),
+    body('name').optional().trim().isLength({ min: 2, max: 120 }),
+    body('phone').optional({ values: 'falsy' }).trim().isMobilePhone('any'),
+    body('email').optional({ values: 'falsy' }).trim().isEmail(),
+  ],
+  validate,
+  async (req, res) => {
+    const { id } = req.params;
+    const { name, phone, email } = req.body;
+    try {
+      const result = await db.query(
+        `UPDATE users SET
+           name = COALESCE($1, name),
+           phone = COALESCE($2, phone),
+           email = COALESCE($3, email)
+         WHERE id = $4 RETURNING id, name, phone, email, role, is_active`,
+        [name || null, phone || null, email || null, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+      await audit({
+        userId: req.user.id,
+        action: 'user.updated',
+        entityType: 'user',
+        entityId: Number(id),
+        ip: req.ip,
+      });
+
+      res.json({ user: result.rows[0] });
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Phone or email already in use' });
+      console.error(e);
+      res.status(400).json({ error: 'Update failed' });
+    }
+  }
+);
+
+// Admin sets a new password for a user directly (e.g. they forgot theirs).
+// Revokes all existing sessions for that user so old refresh tokens can't
+// keep working under the old password.
+router.post(
+  '/users/:id/reset-password',
+  [param('id').isInt(), body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')],
+  validate,
+  async (req, res) => {
+    const { id } = req.params;
+    const { password } = req.body;
+    const hash = await bcrypt.hash(password, 12);
+
+    const result = await db.query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id, name`,
+      [hash, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    await revokeAllRefreshTokensForUser(id);
+    await audit({
+      userId: req.user.id,
+      action: 'user.password_reset',
+      entityType: 'user',
+      entityId: Number(id),
+      ip: req.ip,
+    });
+
+    res.json({ ok: true });
   }
 );
 
