@@ -3,10 +3,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { isTechLoggedIn, clearTechTokens } from '../../../lib/techApi';
+import { syncOfflineQueue } from '../../../lib/offlineSync';
 
 export default function TechShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     if (!isTechLoggedIn()) {
@@ -15,6 +17,25 @@ export default function TechShell({ children }: { children: ReactNode }) {
       setReady(true);
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    async function trySync() {
+      const { remaining } = await syncOfflineQueue();
+      setPendingCount(remaining);
+    }
+
+    trySync(); // attempt immediately on load
+    window.addEventListener('online', trySync);
+    // Some mobile browsers don't fire 'online' reliably — poll as a backup.
+    const interval = setInterval(trySync, 20000);
+
+    return () => {
+      window.removeEventListener('online', trySync);
+      clearInterval(interval);
+    };
+  }, [ready]);
 
   if (!ready) return null;
 
@@ -33,6 +54,11 @@ export default function TechShell({ children }: { children: ReactNode }) {
             Logout
           </button>
         </div>
+        {pendingCount > 0 && (
+          <div className="bg-amber-500 text-white text-sm text-center py-1">
+            📤 {pendingCount} item{pendingCount > 1 ? 's' : ''} waiting to upload — internet aane par apne aap chala jaayega
+          </div>
+        )}
       </header>
       <main className="max-w-xl mx-auto p-4">{children}</main>
     </div>
