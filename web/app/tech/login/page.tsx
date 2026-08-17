@@ -25,7 +25,7 @@ export default function TechLoginPage() {
       if (!res.ok) throw new Error(data.error || 'Login failed');
       if (data.user.role !== 'technician') throw new Error('This login is for technicians only');
       setTechTokens(data.accessToken, data.refreshToken);
-      router.push('/tech/jobs');
+      router.replace('/tech/jobs');
     } catch (err: any) {
       setError(err.message);
     } finally {
