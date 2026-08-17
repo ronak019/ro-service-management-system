@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import TechShell from '../../_components/TechShell';
 import { techApiFetch, isTechLoggedIn } from '../../../../lib/techApi';
+import { queueAdd } from '../../../../lib/offlineQueue';
 
 export default function TechJobDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,7 @@ export default function TechJobDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [done, setDone] = useState(false);
+  const [offlineSaved, setOfflineSaved] = useState(false);
 
   // Separate section: technician logs a complaint the customer told them
   // about over the phone, without the customer needing to open their link.
@@ -30,6 +32,7 @@ export default function TechJobDetailPage() {
   const [complaintAudioBlob, setComplaintAudioBlob] = useState<Blob | null>(null);
   const [complaintSubmitting, setComplaintSubmitting] = useState(false);
   const [complaintDone, setComplaintDone] = useState(false);
+  const [complaintOfflineSaved, setComplaintOfflineSaved] = useState(false);
   const complaintRecorderRef = useRef<MediaRecorder | null>(null);
   const complaintChunksRef = useRef<Blob[]>([]);
 
@@ -108,6 +111,26 @@ export default function TechJobDetailPage() {
     setSubmitting(true);
     setError('');
     setDone(false);
+    setOfflineSaved(false);
+
+    // No signal right now — save locally instead of failing, and let the
+    // background sync (see TechShell) upload it automatically once online.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      try {
+        await queueAdd({ type: 'report', jobId: String(id), text: textReport, images, audioBlob });
+        setOfflineSaved(true);
+        setTextReport('');
+        setImages([]);
+        setImagePreviews([]);
+        setAudioBlob(null);
+      } catch (e: any) {
+        setError('Could not save offline: ' + e.message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append('textReport', textReport);
@@ -122,7 +145,18 @@ export default function TechJobDetailPage() {
       setAudioBlob(null);
       load();
     } catch (e: any) {
-      setError(e.message);
+      // Request itself failed (signal dropped mid-upload, DNS failure, etc.)
+      // — fall back to the offline queue rather than losing the report.
+      try {
+        await queueAdd({ type: 'report', jobId: String(id), text: textReport, images, audioBlob });
+        setOfflineSaved(true);
+        setTextReport('');
+        setImages([]);
+        setImagePreviews([]);
+        setAudioBlob(null);
+      } catch {
+        setError(e.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -171,6 +205,30 @@ export default function TechJobDetailPage() {
     setComplaintSubmitting(true);
     setError('');
     setComplaintDone(false);
+    setComplaintOfflineSaved(false);
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      try {
+        await queueAdd({
+          type: 'complaint',
+          jobId: String(id),
+          text: complaintMessage,
+          images: complaintImages,
+          audioBlob: complaintAudioBlob,
+        });
+        setComplaintOfflineSaved(true);
+        setComplaintMessage('');
+        setComplaintImages([]);
+        setComplaintImagePreviews([]);
+        setComplaintAudioBlob(null);
+      } catch (e: any) {
+        setError('Could not save offline: ' + e.message);
+      } finally {
+        setComplaintSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append('message', complaintMessage);
@@ -184,7 +242,22 @@ export default function TechJobDetailPage() {
       setComplaintImagePreviews([]);
       setComplaintAudioBlob(null);
     } catch (e: any) {
-      setError(e.message);
+      try {
+        await queueAdd({
+          type: 'complaint',
+          jobId: String(id),
+          text: complaintMessage,
+          images: complaintImages,
+          audioBlob: complaintAudioBlob,
+        });
+        setComplaintOfflineSaved(true);
+        setComplaintMessage('');
+        setComplaintImages([]);
+        setComplaintImagePreviews([]);
+        setComplaintAudioBlob(null);
+      } catch {
+        setError(e.message);
+      }
     } finally {
       setComplaintSubmitting(false);
     }
@@ -307,6 +380,11 @@ export default function TechJobDetailPage() {
             </button>
 
             {done && <p className="text-green-600 text-center">Report submitted! / रिपोर्ट जमा हो गई!</p>}
+            {offlineSaved && (
+              <p className="text-amber-700 text-center text-sm">
+                📴 Internet nahi hai — phone mein save ho gaya, internet aane par apne aap upload ho jaayega
+              </p>
+            )}
           </form>
 
           <form onSubmit={submitComplaint} className="bg-white rounded-lg shadow p-4 space-y-4 mt-4 border-l-4 border-amber-500">
@@ -381,6 +459,11 @@ export default function TechJobDetailPage() {
 
             {complaintDone && (
               <p className="text-green-600 text-center">Complaint logged! / शिकायत दर्ज हो गई!</p>
+            )}
+            {complaintOfflineSaved && (
+              <p className="text-amber-700 text-center text-sm">
+                📴 Internet nahi hai — phone mein save ho gaya, internet aane par apne aap upload ho jaayega
+              </p>
             )}
           </form>
 
