@@ -1,5 +1,7 @@
 // routes/jobs.js
 import express from 'express';
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { body, param } from 'express-validator';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -13,6 +15,86 @@ async function getTechnicianId(userId) {
   const techRes = await db.query('SELECT id FROM technicians WHERE user_id = $1', [userId]);
   return techRes.rows[0]?.id || null;
 }
+
+/**
+ * POST /api/jobs/quick
+ * For customers who contacted the technician directly instead of going
+ * through admin scheduling. Creates a minimal customer account (reusing one
+ * if the phone number is already known) plus a job in one step, so the
+ * technician can immediately attach photos/audio/text via the normal report
+ * flow (POST /api/reports/jobs/:jobId) right after.
+ */
+router.post(
+  '/quick',
+  authenticate,
+  requireRole('technician'),
+  [
+    body('customerName').trim().isLength({ min: 2, max: 120 }),
+    body('customerPhone').trim().isMobilePhone('any'),
+    body('address').optional({ values: 'falsy' }).trim(),
+    body('notes').optional({ values: 'falsy' }).trim(),
+  ],
+  validate,
+  async (req, res) => {
+    const { customerName, customerPhone, address, notes } = req.body;
+    const technicianId = await getTechnicianId(req.user.id);
+    if (!technicianId) return res.status(404).json({ error: 'Technician profile not found' });
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Reuse an existing customer account by phone; otherwise create a
+      // lightweight one (random password — this customer never needs to log
+      // in, they only ever access their report via the public link).
+      let customerId;
+      const existing = await client.query(
+        `SELECT c.id FROM customers c JOIN users u ON u.id = c.user_id WHERE u.phone = $1`,
+        [customerPhone]
+      );
+      if (existing.rows.length > 0) {
+        customerId = existing.rows[0].id;
+      } else {
+        const randomPassword = crypto.randomBytes(12).toString('hex');
+        const hash = await bcrypt.hash(randomPassword, 12);
+        const userRes = await client.query(
+          `INSERT INTO users (name, phone, role, password_hash) VALUES ($1, $2, 'customer', $3) RETURNING id`,
+          [customerName, customerPhone, hash]
+        );
+        const custRes = await client.query(
+          `INSERT INTO customers (user_id, address) VALUES ($1, $2) RETURNING id`,
+          [userRes.rows[0].id, address || null]
+        );
+        customerId = custRes.rows[0].id;
+      }
+
+      const jobRes = await client.query(
+        `INSERT INTO jobs (customer_id, technician_id, scheduled_at, status, notes, created_by)
+         VALUES ($1, $2, NOW(), 'in_progress', $3, $4) RETURNING *`,
+        [customerId, technicianId, notes || 'Direct customer contact', req.user.id]
+      );
+
+      await client.query('COMMIT');
+
+      await audit({
+        userId: req.user.id,
+        action: 'job.quick_created',
+        entityType: 'job',
+        entityId: jobRes.rows[0].id,
+        details: { customerPhone },
+        ip: req.ip,
+      });
+
+      res.status(201).json({ job: jobRes.rows[0] });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error(e);
+      res.status(500).json({ error: 'Could not create job' });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 // GET /api/jobs — technician's own jobs only
 router.get('/', authenticate, requireRole('technician'), async (req, res) => {
