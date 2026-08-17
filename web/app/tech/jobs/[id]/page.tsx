@@ -21,6 +21,18 @@ export default function TechJobDetailPage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Separate section: technician logs a complaint the customer told them
+  // about over the phone, without the customer needing to open their link.
+  const [complaintMessage, setComplaintMessage] = useState('');
+  const [complaintImages, setComplaintImages] = useState<File[]>([]);
+  const [complaintImagePreviews, setComplaintImagePreviews] = useState<string[]>([]);
+  const [complaintRecording, setComplaintRecording] = useState(false);
+  const [complaintAudioBlob, setComplaintAudioBlob] = useState<Blob | null>(null);
+  const [complaintSubmitting, setComplaintSubmitting] = useState(false);
+  const [complaintDone, setComplaintDone] = useState(false);
+  const complaintRecorderRef = useRef<MediaRecorder | null>(null);
+  const complaintChunksRef = useRef<Blob[]>([]);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -113,6 +125,68 @@ export default function TechJobDetailPage() {
       setError(e.message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function handleComplaintImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []).slice(0, 5 - complaintImages.length);
+    setComplaintImages((prev) => [...prev, ...files]);
+    setComplaintImagePreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
+    e.target.value = '';
+  }
+  function removeComplaintImage(idx: number) {
+    setComplaintImages((prev) => prev.filter((_, i) => i !== idx));
+    setComplaintImagePreviews((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  async function toggleComplaintRecording() {
+    if (complaintRecording) {
+      complaintRecorderRef.current?.stop();
+      setComplaintRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      complaintChunksRef.current = [];
+      recorder.ondataavailable = (e) => complaintChunksRef.current.push(e.data);
+      recorder.onstop = () => {
+        setComplaintAudioBlob(new Blob(complaintChunksRef.current, { type: 'audio/webm' }));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      complaintRecorderRef.current = recorder;
+      setComplaintRecording(true);
+    } catch {
+      setError('Microphone permission denied / माइक्रोफ़ोन अनुमति नहीं मिली');
+    }
+  }
+
+  async function submitComplaint(e: React.FormEvent) {
+    e.preventDefault();
+    if (!complaintMessage.trim() && !complaintAudioBlob && complaintImages.length === 0) {
+      setError('Complaint ke liye message, photo ya audio dein');
+      return;
+    }
+    setComplaintSubmitting(true);
+    setError('');
+    setComplaintDone(false);
+    try {
+      const formData = new FormData();
+      formData.append('message', complaintMessage);
+      if (complaintAudioBlob) formData.append('audio', complaintAudioBlob, 'complaint.webm');
+      complaintImages.forEach((img, i) => formData.append('images', img, img.name || `complaint_${i}.jpg`));
+
+      await techApiFetch(`/complaints/technician/${id}`, { method: 'POST', body: formData });
+      setComplaintDone(true);
+      setComplaintMessage('');
+      setComplaintImages([]);
+      setComplaintImagePreviews([]);
+      setComplaintAudioBlob(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setComplaintSubmitting(false);
     }
   }
 
@@ -233,6 +307,81 @@ export default function TechJobDetailPage() {
             </button>
 
             {done && <p className="text-green-600 text-center">Report submitted! / रिपोर्ट जमा हो गई!</p>}
+          </form>
+
+          <form onSubmit={submitComplaint} className="bg-white rounded-lg shadow p-4 space-y-4 mt-4 border-l-4 border-amber-500">
+            <h2 className="font-bold text-lg">
+              Complaint Darj Karein / शिकायत दर्ज करें
+              <span className="block text-sm font-normal text-gray-500">
+                (agar customer ne phone par bataya ho / if customer told you over the phone)
+              </span>
+            </h2>
+
+            <textarea
+              className="w-full border rounded p-3 text-base"
+              rows={3}
+              value={complaintMessage}
+              onChange={(e) => setComplaintMessage(e.target.value)}
+              placeholder="Customer ne kya complaint ki / What did the customer say?"
+            />
+
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={toggleComplaintRecording}
+                className={`px-4 py-3 rounded font-medium text-white ${
+                  complaintRecording ? 'bg-red-600' : 'bg-gray-700'
+                }`}
+              >
+                {complaintRecording ? '⏹ Stop' : '🎤 Record Audio'}
+              </button>
+              {complaintAudioBlob && !complaintRecording && (
+                <span className="self-center text-sm text-green-700">Audio ready</span>
+              )}
+
+              <label className="px-4 py-3 rounded font-medium bg-gray-100 cursor-pointer">
+                📷 Add Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  className="hidden"
+                  disabled={complaintImages.length >= 5}
+                  onChange={handleComplaintImagePick}
+                />
+              </label>
+            </div>
+
+            {complaintImagePreviews.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {complaintImagePreviews.map((src, idx) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <div key={idx} className="relative">
+                    <img src={src} alt="" className="w-20 h-20 object-cover rounded border" />
+                    <button
+                      type="button"
+                      onClick={() => removeComplaintImage(idx)}
+                      className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={complaintSubmitting}
+              className="w-full bg-amber-600 text-white rounded p-4 text-base font-bold disabled:opacity-50"
+            >
+              {complaintSubmitting ? 'Submitting...' : 'Submit Complaint / शिकायत जमा करें'}
+            </button>
+
+            {complaintDone && (
+              <p className="text-green-600 text-center">Complaint logged! / शिकायत दर्ज हो गई!</p>
+            )}
           </form>
 
           {reports.length > 0 && (
