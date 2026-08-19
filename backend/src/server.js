@@ -9,6 +9,7 @@ import jobsRoutes from './routes/jobs.js';
 import reportRoutes from './routes/reports.js';
 import complaintRoutes from './routes/complaints.js';
 import adminRoutes from './routes/admin.js';
+import pushRoutes from './routes/push.js';
 import { generalLimiter } from './middleware/rateLimit.js';
 
 dotenv.config();
@@ -43,6 +44,7 @@ app.use('/api/jobs', jobsRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/complaints', complaintRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/push', pushRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
