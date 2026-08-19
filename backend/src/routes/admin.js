@@ -9,6 +9,7 @@ import { validate } from '../middleware/validate.js';
 import { db } from '../db/index.js';
 import { audit } from '../utils/audit.js';
 import { revokeAllRefreshTokensForUser } from '../utils/tokens.js';
+import { sendPushToUser } from '../utils/push.js';
 
 const router = express.Router();
 router.use(authenticate, requireRole('admin'));
@@ -126,8 +127,6 @@ router.post(
     res.json({ ok: true });
   }
 );
-
-// Customer profile fields (address, RO model etc.) — separate from account creation.
 router.put(
   '/customers/:id',
   [
@@ -194,15 +193,31 @@ router.post(
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [customerId, technicianId, scheduledAt, notes || null, req.user.id]
       );
+      const job = result.rows[0];
+
       await audit({
         userId: req.user.id,
         action: 'job.created',
         entityType: 'job',
-        entityId: result.rows[0].id,
+        entityId: job.id,
         details: { customerId, technicianId },
         ip: req.ip,
       });
-      res.status(201).json({ job: result.rows[0] });
+
+      // Notify the assigned technician's phone, if they've enabled notifications.
+      const techUser = await db.query(
+        `SELECT u.id, u.name FROM technicians t JOIN users u ON u.id = t.user_id WHERE t.id = $1`,
+        [technicianId]
+      );
+      if (techUser.rows.length > 0) {
+        sendPushToUser(techUser.rows[0].id, {
+          title: 'Naya Job Assign Hua / New Job Assigned',
+          body: `Aapko ek naya job diya gaya hai — dekhne ke liye tap karein.`,
+          url: `/tech/jobs/${job.id}`,
+        }).catch((e) => console.error('push notify failed', e.message));
+      }
+
+      res.status(201).json({ job });
     } catch (e) {
       res.status(400).json({ error: 'Could not create job — check customerId/technicianId' });
     }
@@ -231,6 +246,18 @@ router.put(
       details: { technicianId },
       ip: req.ip,
     });
+
+    const techUser = await db.query(
+      `SELECT u.id FROM technicians t JOIN users u ON u.id = t.user_id WHERE t.id = $1`,
+      [technicianId]
+    );
+    if (techUser.rows.length > 0) {
+      sendPushToUser(techUser.rows[0].id, {
+        title: 'Job Aapko Assign Hua / Job Assigned To You',
+        body: `Ek job aapke naam par assign hua hai — dekhne ke liye tap karein.`,
+        url: `/tech/jobs/${id}`,
+      }).catch((e) => console.error('push notify failed', e.message));
+    }
 
     res.json({ job: result.rows[0] });
   }
