@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import TechShell from '../../_components/TechShell';
 import { techApiFetch, isTechLoggedIn } from '../../../../lib/techApi';
 import { queueAdd } from '../../../../lib/offlineQueue';
+import { watermarkImages } from '../../../../lib/watermark';
 
 export default function TechJobDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -68,11 +69,12 @@ export default function TechJobDetailPage() {
     }
   }
 
-  function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
+  async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawFiles = Array.from(e.target.files || []);
+    e.target.value = ''; // allow picking the same file again / repeated captures
+    const files = await watermarkImages(rawFiles);
     setImages((prev) => [...prev, ...files]);
     setImagePreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
-    e.target.value = ''; // allow picking the same file again / repeated captures
   }
   function removeImage(idx: number) {
     setImages((prev) => prev.filter((_, i) => i !== idx));
@@ -162,11 +164,12 @@ export default function TechJobDetailPage() {
     }
   }
 
-  function handleComplaintImagePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []).slice(0, 5 - complaintImages.length);
+  async function handleComplaintImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawFiles = Array.from(e.target.files || []).slice(0, 5 - complaintImages.length);
+    e.target.value = '';
+    const files = await watermarkImages(rawFiles);
     setComplaintImages((prev) => [...prev, ...files]);
     setComplaintImagePreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
-    e.target.value = '';
   }
   function removeComplaintImage(idx: number) {
     setComplaintImages((prev) => prev.filter((_, i) => i !== idx));
