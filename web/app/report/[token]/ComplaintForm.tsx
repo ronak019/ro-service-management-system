@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { watermarkImages } from '../../../lib/watermark';
 
 export default function ComplaintForm({ token }: { token: string }) {
   const [message, setMessage] = useState('');
@@ -41,11 +42,12 @@ export default function ComplaintForm({ token }: { token: string }) {
     }
   }
 
-  function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []).slice(0, 5 - images.length);
+  async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawFiles = Array.from(e.target.files || []).slice(0, 5 - images.length);
+    e.target.value = '';
+    const files = await watermarkImages(rawFiles);
     setImages((prev) => [...prev, ...files]);
     setImagePreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
-    e.target.value = '';
   }
   function removeImage(idx: number) {
     setImages((prev) => prev.filter((_, i) => i !== idx));
