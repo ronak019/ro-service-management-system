@@ -3,5 +3,26 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply text-gray-900;
+  min-height: 100vh;
+  background-color: #e0f2fe;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.5), transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(255, 255, 255, 0.35), transparent 45%),
+    linear-gradient(120deg, #e0f2fe, #bae6fd, #7dd3fc, #bae6fd, #e0f2fe);
+  background-size: 100% 100%, 100% 100%, 400% 400%;
+  background-attachment: fixed, fixed, scroll;
+  animation: waterFlow 18s ease-in-out infinite;
+}
+
+@keyframes waterFlow {
+  0% {
+    background-position: 0% 50%, 0% 50%, 0% 50%;
+  }
+  50% {
+    background-position: 0% 50%, 0% 50%, 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%, 0% 50%, 0% 50%;
+  }
 }
