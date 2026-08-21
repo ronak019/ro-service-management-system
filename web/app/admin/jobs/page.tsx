@@ -63,6 +63,20 @@ export default function JobsPage() {
     }
   }
 
+  async function reassign(jobId: number, technicianId: string) {
+    if (!technicianId) return;
+    try {
+      await apiFetch(`/admin/jobs/${jobId}/assign`, {
+        method: 'PUT',
+        body: JSON.stringify({ technicianId: Number(technicianId) }),
+      });
+      setNotice(`Job #${jobId} reassigned — technician ko notification bhi bhej diya`);
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   return (
     <AdminShell>
       <h1 className="text-2xl font-bold mb-4">Jobs</h1>
@@ -119,7 +133,19 @@ export default function JobsPage() {
                 {new Date(j.scheduled_at).toLocaleString('en-IN')} · <span className="capitalize">{j.status.replace('_', ' ')}</span>
               </div>
             </div>
-            <div className="flex gap-2 text-sm">
+            <div className="flex gap-2 text-sm items-center flex-wrap">
+              <select
+                className="border rounded p-1 text-sm"
+                defaultValue=""
+                onChange={(e) => reassign(j.id, e.target.value)}
+              >
+                <option value="" disabled>
+                  Reassign to...
+                </option>
+                {technicians.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
               <button onClick={() => generateLink(j.id)} className="px-3 py-1 bg-gray-800 text-white rounded">
                 Generate link
               </button>
