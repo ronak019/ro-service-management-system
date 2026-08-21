@@ -4,77 +4,35 @@ import { useEffect, useState } from 'react';
 import AdminShell from '../_components/AdminShell';
 import StatusBadge from '../_components/StatusBadge';
 import { apiFetch } from '../../../lib/api';
-import { jobStatusStyle } from '../../../lib/statusColors';
+import { COMPLAINT_STATUS_STYLES, complaintStatusStyle } from '../../../lib/statusColors';
 
-export default function JobsPage() {
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [technicians, setTechnicians] = useState<any[]>([]);
+const FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+];
+
+function waLink(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  return `https://wa.me/${digits.length === 10 ? '91' + digits : digits}`;
+}
+
+export default function ComplaintsPage() {
+  const [complaints, setComplaints] = useState<any[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState('');
 
-  const [form, setForm] = useState({ customerId: '', technicianId: '', scheduledAt: '', notes: '' });
-
-  function load() {
-    Promise.all([apiFetch('/admin/jobs'), apiFetch('/admin/customers'), apiFetch('/admin/technicians')])
-      .then(([j, c, t]) => {
-        setJobs(j.jobs);
-        setCustomers(c.customers);
-        setTechnicians(t.technicians);
-      })
+  function load(status = filter) {
+    apiFetch(`/admin/complaints${status ? `?status=${status}` : ''}`)
+      .then((d) => setComplaints(d.complaints))
       .catch((e) => setError(e.message));
   }
-  useEffect(load, []);
+  useEffect(() => load(filter), [filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function createJob(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
+  async function updateStatus(id: number, status: string) {
     try {
-      await apiFetch('/admin/jobs', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerId: Number(form.customerId),
-          technicianId: Number(form.technicianId),
-          scheduledAt: new Date(form.scheduledAt).toISOString(),
-          notes: form.notes,
-        }),
-      });
-      setForm({ customerId: '', technicianId: '', scheduledAt: '', notes: '' });
-      setShowForm(false);
-      load();
-    } catch (e: any) {
-      setError(e.message);
-    }
-  }
-
-  async function generateLink(jobId: number) {
-    try {
-      const data = await apiFetch(`/admin/jobs/${jobId}/report-link`, { method: 'POST', body: JSON.stringify({}) });
-      await navigator.clipboard.writeText(data.link).catch(() => {});
-      setNotice(`Link copied: ${data.link}`);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  }
-
-  async function revokeLink(jobId: number) {
-    try {
-      await apiFetch(`/admin/jobs/${jobId}/report-link/revoke`, { method: 'POST' });
-      setNotice(`Link revoked for job #${jobId}`);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  }
-
-  async function reassign(jobId: number, technicianId: string) {
-    if (!technicianId) return;
-    try {
-      await apiFetch(`/admin/jobs/${jobId}/assign`, {
-        method: 'PUT',
-        body: JSON.stringify({ technicianId: Number(technicianId) }),
-      });
-      setNotice(`Job #${jobId} reassigned — technician ko notification bhi bhej diya`);
+      await apiFetch(`/admin/complaints/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
       load();
     } catch (e: any) {
       setError(e.message);
@@ -83,99 +41,93 @@ export default function JobsPage() {
 
   return (
     <AdminShell>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Jobs</h1>
-          <p className="text-sm text-slate-500">{jobs.length} total</p>
-        </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
-        >
-          {showForm ? 'Cancel' : '+ New Job'}
-        </button>
+      <h1 className="text-xl font-bold text-slate-900 mb-1">Complaints</h1>
+      <p className="text-sm text-slate-500 mb-5">{complaints.length} showing</p>
+      {error && <p className="text-red-600 mb-3 text-sm">{error}</p>}
+
+      <div className="flex gap-1 mb-5 bg-white border border-slate-200 rounded-lg p-1 w-fit">
+        {FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              filter === f.value ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
-      {error && <p className="text-red-600 mb-3 text-sm">{error}</p>}
-      {notice && <p className="text-green-700 mb-3 text-sm break-all">{notice}</p>}
-
-      {showForm && (
-        <form onSubmit={createJob} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-6 grid gap-3 sm:grid-cols-2">
-          <select
-            className="border border-slate-300 rounded-lg p-2.5 text-sm"
-            required
-            value={form.customerId}
-            onChange={(e) => setForm({ ...form, customerId: e.target.value })}
-          >
-            <option value="">Select customer</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>
-            ))}
-          </select>
-          <select
-            className="border border-slate-300 rounded-lg p-2.5 text-sm"
-            required
-            value={form.technicianId}
-            onChange={(e) => setForm({ ...form, technicianId: e.target.value })}
-          >
-            <option value="">Select technician</option>
-            {technicians.map((t) => (
-              <option key={t.id} value={t.id}>{t.name} — {t.phone}</option>
-            ))}
-          </select>
-          <input
-            type="datetime-local"
-            className="border border-slate-300 rounded-lg p-2.5 text-sm"
-            required
-            value={form.scheduledAt}
-            onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
-          />
-          <input
-            className="border border-slate-300 rounded-lg p-2.5 text-sm"
-            placeholder="Notes (optional)"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          />
-          <button className="sm:col-span-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg p-2.5">
-            Create Job
-          </button>
-        </form>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-        {jobs.map((j) => (
-          <div key={j.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-semibold text-slate-900 text-sm">#{j.id} {j.customer_name}</span>
-                <span className="text-slate-400 text-sm">→ {j.technician_name}</span>
-                <StatusBadge style={jobStatusStyle(j.status)} />
+      <div className="space-y-4">
+        {complaints.map((c) => (
+          <div key={c.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-semibold text-slate-900">Job #{c.job_id} — {c.customer_name}</h3>
+                  <StatusBadge style={complaintStatusStyle(c.status)} />
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <span>{new Date(c.created_at).toLocaleString('en-IN')}</span>
+                  {c.customer_phone && (
+                    <>
+                      <a href={`tel:${c.customer_phone}`} className="text-blue-600 hover:underline">📞 {c.customer_phone}</a>
+                      <a href={waLink(c.customer_phone)} target="_blank" rel="noreferrer" className="text-green-600 hover:underline">
+                        WhatsApp
+                      </a>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="text-xs text-slate-500">
-                {new Date(j.scheduled_at).toLocaleString('en-IN')}
-              </div>
-            </div>
-            <div className="flex gap-2 text-sm items-center flex-wrap">
               <select
-                className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs"
-                defaultValue=""
-                onChange={(e) => reassign(j.id, e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-medium"
+                value={c.status}
+                onChange={(e) => updateStatus(c.id, e.target.value)}
               >
-                <option value="" disabled>Reassign to...</option>
-                {technicians.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                {Object.entries(COMPLAINT_STATUS_STYLES).map(([value, style]) => (
+                  <option key={value} value={value}>{style.label}</option>
                 ))}
               </select>
-              <button onClick={() => generateLink(j.id)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-medium">
-                Generate link
-              </button>
-              <button onClick={() => revokeLink(j.id)} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium">
-                Revoke link
-              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4">
+              {c.customer_message && <p className="text-sm text-slate-700 mb-3">{c.customer_message}</p>}
+
+              {(c.image_urls?.length > 0 || c.video_url || c.audio_url) && (
+                <div className="space-y-3">
+                  {c.image_urls?.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {c.image_urls.map((url: string, idx: number) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <a key={idx} href={url} target="_blank" rel="noreferrer">
+                          <img src={url} alt="" className="w-20 h-20 object-cover rounded-lg border border-slate-200" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {c.video_url && (
+                    <video controls className="w-full max-w-sm rounded-lg border border-slate-200">
+                      <source src={c.video_url} />
+                    </video>
+                  )}
+                  {c.audio_url && (
+                    <audio controls className="w-full max-w-sm">
+                      <source src={c.audio_url} />
+                    </audio>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}
-        {jobs.length === 0 && <p className="p-6 text-slate-500 text-sm text-center">Koi job nahi hai abhi — "+ New Job" se banayein</p>}
+        {complaints.length === 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500 text-sm">
+            Is filter mein koi complaint nahi hai
+          </div>
+        )}
       </div>
     </AdminShell>
   );
