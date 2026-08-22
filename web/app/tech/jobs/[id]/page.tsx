@@ -13,6 +13,7 @@ export default function TechJobDetailPage() {
 
   const [job, setJob] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
+  const [complaints, setComplaints] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [textReport, setTextReport] = useState('');
   const [images, setImages] = useState<File[]>([]);
@@ -45,6 +46,7 @@ export default function TechJobDetailPage() {
       .then((d) => {
         setJob(d.job);
         setReports(d.reports || []);
+        setComplaints(d.complaints || []);
       })
       .catch((e) => setError(e.message));
   }
@@ -469,6 +471,58 @@ export default function TechJobDetailPage() {
               </p>
             )}
           </form>
+
+          {complaints.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">Complaints on this job / इस काम की शिकायतें</h3>
+              <div className="space-y-3">
+                {complaints.map((c: any) => (
+                  <div key={c.id} className="bg-white rounded-lg shadow p-4">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      {c.source === 'technician' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                          🔧 Technician{c.logged_by_name ? ` — ${c.logged_by_name}` : ''}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700">
+                          🧑 Customer
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">{new Date(c.created_at).toLocaleString('en-IN')}</span>
+                      <span className="text-xs font-medium text-gray-600 capitalize ml-auto">{c.status.replace('_', ' ')}</span>
+                    </div>
+
+                    {c.customer_message && (
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap mb-2">{c.customer_message}</p>
+                    )}
+
+                    {c.image_urls?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {c.image_urls.map((url: string, idx: number) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <a key={idx} href={url} target="_blank" rel="noreferrer">
+                            <img src={url} alt="" className="w-20 h-20 object-cover rounded border" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {c.video_url && (
+                      <video controls className="w-full max-w-xs rounded border mb-2">
+                        <source src={c.video_url} />
+                      </video>
+                    )}
+
+                    {c.audio_url && (
+                      <audio controls className="w-full">
+                        <source src={c.audio_url} />
+                      </audio>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {reports.length > 0 && (
             <div className="mt-4">
