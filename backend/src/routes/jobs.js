@@ -142,7 +142,20 @@ router.get(
       [req.params.id]
     );
 
-    res.json({ job: jobRes.rows[0], reports: reportsRes.rows });
+    // Every complaint on this job — whether the customer submitted it via
+    // their link, or a technician logged it on the customer's behalf —
+    // so the assigned technician has full context, not just their own reports.
+    const complaintsRes = await db.query(
+      `SELECT co.*, COALESCE(json_agg(ci.image_url) FILTER (WHERE ci.id IS NOT NULL), '[]') AS image_urls
+       FROM complaints co
+       LEFT JOIN complaint_images ci ON ci.complaint_id = co.id
+       WHERE co.job_id = $1
+       GROUP BY co.id
+       ORDER BY co.created_at DESC`,
+      [req.params.id]
+    );
+
+    res.json({ job: jobRes.rows[0], reports: reportsRes.rows, complaints: complaintsRes.rows });
   }
 );
 
