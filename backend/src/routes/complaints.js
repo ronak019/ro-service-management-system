@@ -7,8 +7,26 @@ import { complaintLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { db } from '../db/index.js';
 import { audit } from '../utils/audit.js';
+import { sendPushToUser } from '../utils/push.js';
 
 const router = express.Router();
+
+// Fire-and-forget: notify every active admin that a new complaint came in.
+async function notifyAdminsOfComplaint(complaint, source) {
+  try {
+    const admins = await db.query(`SELECT id FROM users WHERE role = 'admin' AND is_active = TRUE`);
+    const who = source === 'technician' ? 'Technician ne' : 'Customer ne';
+    for (const admin of admins.rows) {
+      sendPushToUser(admin.id, {
+        title: 'Nayi Complaint / New Complaint',
+        body: `${who} Job #${complaint.job_id} par complaint darj ki hai`,
+        url: `/admin/complaints`,
+      }).catch((e) => console.error('admin push notify failed', e.message));
+    }
+  } catch (e) {
+    console.error('notifyAdminsOfComplaint failed', e.message);
+  }
+}
 
 /**
  * POST /api/complaints/technician/:jobId
@@ -77,6 +95,8 @@ router.post(
       }
 
       await client.query('COMMIT');
+
+      notifyAdminsOfComplaint(complaint, 'technician');
 
       await audit({
         userId: req.user.id,
@@ -168,6 +188,8 @@ router.post(
       }
 
       await client.query('COMMIT');
+
+      notifyAdminsOfComplaint(complaint, 'customer');
 
       await audit({
         action: 'complaint.created',
