@@ -35,9 +35,13 @@ router.post(
     const { jobId } = req.params;
     const { message } = req.body;
 
-    const techRes = await db.query('SELECT id FROM technicians WHERE user_id = $1', [req.user.id]);
+    const techRes = await db.query(
+      `SELECT t.id, u.name FROM technicians t JOIN users u ON u.id = t.user_id WHERE t.user_id = $1`,
+      [req.user.id]
+    );
     if (techRes.rows.length === 0) return res.status(404).json({ error: 'Technician profile not found' });
     const technicianId = techRes.rows[0].id;
+    const technicianName = techRes.rows[0].name;
 
     const jobCheck = await db.query(
       'SELECT id FROM jobs WHERE id = $1 AND technician_id = $2',
@@ -57,9 +61,9 @@ router.post(
       await client.query('BEGIN');
 
       const result = await client.query(
-        `INSERT INTO complaints (job_id, customer_message, audio_url, status)
-         VALUES ($1, $2, $3, 'open') RETURNING *`,
-        [jobId, message?.trim() || null, audioFile ? getPublicUrl(audioFile) : null]
+        `INSERT INTO complaints (job_id, customer_message, audio_url, status, source, logged_by_name)
+         VALUES ($1, $2, $3, 'open', 'technician', $4) RETURNING *`,
+        [jobId, message?.trim() || null, audioFile ? getPublicUrl(audioFile) : null, technicianName]
       );
       const complaint = result.rows[0];
 
